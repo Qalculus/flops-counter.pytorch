@@ -23,14 +23,14 @@ def get_model_parameters_number(model, as_string=True):
 
     return str(params_num)
 
-def add_flops_counting_methods(net_main_module):
+def add_flops_counting_methods(net_main_module, ignore_batch_norm=False):
     # adding additional methods to the existing module object,
     # this is done this way so that each function has access to self object
     net_main_module.start_flops_count = start_flops_count.__get__(net_main_module)
     net_main_module.stop_flops_count = stop_flops_count.__get__(net_main_module)
     net_main_module.reset_flops_count = reset_flops_count.__get__(net_main_module)
     net_main_module.compute_average_flops_cost = compute_average_flops_cost.__get__(net_main_module)
-
+    net_main_module.__ignore_batch_norm = ignore_batch_norm
     net_main_module.reset_flops_count()
 
     # Adding variables necessary for masked flops computation
@@ -67,7 +67,9 @@ def start_flops_count(self):
 
     """
     add_batch_counter_hook_function(self)
-    self.apply(add_flops_counter_hook_function)
+    add_flops_counter_hook = \
+        lambda module: add_flops_counter_hook_function(module, self.__ignore_batch_norm)
+    self.apply(add_flops_counter_hook)
 
 
 def stop_flops_count(self):
@@ -220,7 +222,7 @@ def add_flops_counter_variable_or_reset(module):
         module.__flops__ = 0
 
 
-def add_flops_counter_hook_function(module):
+def add_flops_counter_hook_function(module, ignore_batch_norm):
     if is_supported_instance(module):
         if hasattr(module, '__flops_handle__'):
             return
@@ -235,7 +237,7 @@ def add_flops_counter_hook_function(module):
         elif isinstance(module, (torch.nn.AvgPool2d, torch.nn.MaxPool2d, nn.AdaptiveMaxPool2d, \
                                  nn.AdaptiveAvgPool2d)):
             handle = module.register_forward_hook(pool_flops_counter_hook)
-        elif isinstance(module, torch.nn.BatchNorm2d):
+        elif isinstance(module, torch.nn.BatchNorm2d) and not ignore_batch_norm:
             handle = module.register_forward_hook(bn_flops_counter_hook)
         elif isinstance(module, torch.nn.Upsample):
             handle = module.register_forward_hook(upsample_flops_counter_hook)
